@@ -4,6 +4,7 @@ go 1.21
 
 require (
 	github.com/sgnl-ai/adapter-framework v0.7.4
+	github.com/sgnl-ai/adapter-template v0.0.0-20250213210337-92d1202ce8b8
 	google.golang.org/grpc v1.60.0
 )
 
