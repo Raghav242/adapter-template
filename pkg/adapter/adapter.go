@@ -15,10 +15,11 @@ package adapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"time"
-
+	"io"
 	"net/http"
+	"time"
 
 	framework "github.com/sgnl-ai/adapter-framework"
 	api_adapter_v1 "github.com/sgnl-ai/adapter-framework/api/adapter/v1"
@@ -80,7 +81,7 @@ func (a *Adapter) RequestPageFromDatasource(
 	req.Header.Set("Authorization", "Token token="+request.Auth.HTTPAuthorization)
 
 	// Perform the request
-	resp, err := a.Client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return framework.NewGetPageResponseError(
 			&framework.Error{
@@ -97,12 +98,34 @@ func (a *Adapter) RequestPageFromDatasource(
 		return framework.NewGetPageResponseError(adapterErr)
 	}
 
+	// Read the response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return framework.NewGetPageResponseError(
+			&framework.Error{
+				Message: fmt.Sprintf("Failed to read response body: %v", err),
+				Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
+			},
+		)
+	}
+
+	// Parse JSON into a slice of maps
+	var jsonData []map[string]any
+	if err := json.Unmarshal(bodyBytes, &jsonData); err != nil {
+		return framework.NewGetPageResponseError(
+			&framework.Error{
+				Message: fmt.Sprintf("Failed to unmarshal JSON response: %v", err),
+				Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
+			},
+		)
+	}
+
 	// The raw JSON objects from the response must be parsed and converted into framework.Objects.
 	// Nested attributes are flattened and delimited by the delimiter specified.
 	// DateTime values are parsed using the specified DateTimeFormatWithTimeZone.
 	parsedObjects, parserErr := web.ConvertJSONObjectList(
 		&request.Entity,
-		resp.Body,
+		jsonData, // Updated: Pass parsed JSON instead of resp.Body
 
 		// SCAFFOLDING #23 - pkg/adapter/adapter.go: Disable JSONPathAttributeNames.
 		// Disable JSONPathAttributeNames if your datasource does not support
