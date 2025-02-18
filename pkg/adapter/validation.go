@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package adapter
 
 import (
@@ -39,35 +38,34 @@ func (a *Adapter) ValidateGetPageRequest(ctx context.Context, request *framework
 	}
 
 	// SCAFFOLDING #8 - pkg/adapter/validation.go: Modify this validation to match the authn mechanism(s) supported by the SoR.
-	if request.Auth == nil || request.Auth.Basic == nil {
+	// Ensure that an API token is provided, as PagerDuty does not use basic auth.
+	if request.Auth == nil || request.Auth.HTTPAuthorization == "" {
 		return &framework.Error{
-			Message: "Provided datasource auth is missing required basic credentials.",
+			Message: "Provided datasource auth is missing required API token.",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_DATASOURCE_CONFIG,
 		}
 	}
 
-	if _, found := ValidEntityExternalIDs[request.Entity.ExternalId]; !found {
+	// Ensure that the expected external_id is "teams" since we are fetching the teams resource.
+	if request.Entity.ExternalId != "teams" {
 		return &framework.Error{
-			Message: "Provided entity external ID is invalid.",
+			Message: "Provided entity external ID is invalid. Expected 'teams'.",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_ENTITY_CONFIG,
 		}
 	}
 
-	// Validate that at least the unique ID attribute for the requested entity
-	// is requested.
+	// Validate that at least the unique ID attribute for the requested entity is requested.
 	var uniqueIDAttributeFound bool
-
 	for _, attribute := range request.Entity.Attributes {
-		if attribute.ExternalId == ValidEntityExternalIDs[request.Entity.ExternalId].uniqueIDAttrExternalID {
+		if attribute.ExternalId == "id" { // The unique identifier for PagerDuty teams is 'id'.
 			uniqueIDAttributeFound = true
-
 			break
 		}
 	}
 
 	if !uniqueIDAttributeFound {
 		return &framework.Error{
-			Message: "Requested entity attributes are missing unique ID attribute.",
+			Message: "Requested entity attributes are missing unique ID attribute ('id').",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_ENTITY_CONFIG,
 		}
 	}
@@ -83,12 +81,10 @@ func (a *Adapter) ValidateGetPageRequest(ctx context.Context, request *framework
 	}
 
 	// SCAFFOLDING #10 - pkg/adapter/validation.go: Check for Ordered responses.
-	// If the datasource doesn't support sorting results by unique ID
-	// attribute for the requested entity, check instead that Ordered is set to
-	// false.
-	if !request.Ordered {
+	// PagerDuty does not enforce ordered responses, so Ordered can be false.
+	if request.Ordered {
 		return &framework.Error{
-			Message: "Ordered must be set to true.",
+			Message: "Ordered must be set to false for PagerDuty API.",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_ENTITY_CONFIG,
 		}
 	}

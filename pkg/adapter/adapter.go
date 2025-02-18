@@ -11,14 +11,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package adapter
 
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
+
+	"net/http"
 
 	framework "github.com/sgnl-ai/adapter-framework"
 	api_adapter_v1 "github.com/sgnl-ai/adapter-framework/api/adapter/v1"
@@ -62,32 +62,38 @@ func (a *Adapter) RequestPageFromDatasource(
 	// If necessary, update this entire method to query your SoR. All of the code in this function
 	// can be updated to match your SoR requirements.
 
-	if !strings.HasPrefix(request.Address, "https://") {
-		request.Address = "https://" + request.Address
-	}
-	req := &Request{
-		BaseURL: request.Address,
+	apiURL := "https://api.pagerduty.com/teams"
 
-		// Basic Auth
-		Username: request.Auth.Basic.Username,
-		Password: request.Auth.Basic.Password,
-
-		// API Key or OAuth2 Token
-		Token:            request.Auth.HTTPAuthorization,
-		
-		PageSize:         request.PageSize,
-		EntityExternalID: request.Entity.ExternalId,
-		Cursor:           request.Cursor,
-	}
-
-	resp, err := a.Client.GetPage(ctx, req)
+	// Create HTTP request
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return framework.NewGetPageResponseError(err)
+		return framework.NewGetPageResponseError(
+			&framework.Error{
+				Message: fmt.Sprintf("Failed to create request: %v", err),
+				Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
+			},
+		)
 	}
+
+	// Set required headers
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Token token="+request.Auth.HTTPAuthorization)
+
+	// Perform the request
+	resp, err := a.Client.Do(req)
+	if err != nil {
+		return framework.NewGetPageResponseError(
+			&framework.Error{
+				Message: fmt.Sprintf("Failed to perform request: %v", err),
+				Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
+			},
+		)
+	}
+	defer resp.Body.Close()
 
 	// An adapter error message is generated if the response status code is not
 	// successful (i.e. if not statusCode >= 200 && statusCode < 300).
-	if adapterErr := web.HTTPError(resp.StatusCode, resp.RetryAfterHeader); adapterErr != nil {
+	if adapterErr := web.HTTPError(resp.StatusCode, resp.Header.Get("Retry-After")); adapterErr != nil {
 		return framework.NewGetPageResponseError(adapterErr)
 	}
 
@@ -96,7 +102,7 @@ func (a *Adapter) RequestPageFromDatasource(
 	// DateTime values are parsed using the specified DateTimeFormatWithTimeZone.
 	parsedObjects, parserErr := web.ConvertJSONObjectList(
 		&request.Entity,
-		resp.Objects,
+		resp.Body,
 
 		// SCAFFOLDING #23 - pkg/adapter/adapter.go: Disable JSONPathAttributeNames.
 		// Disable JSONPathAttributeNames if your datasource does not support
@@ -134,8 +140,6 @@ func (a *Adapter) RequestPageFromDatasource(
 	page := &framework.Page{
 		Objects: parsedObjects,
 	}
-
-	page.NextCursor = resp.NextCursor
 
 	return framework.NewGetPageResponseSuccess(page)
 }
