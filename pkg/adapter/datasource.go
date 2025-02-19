@@ -21,7 +21,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	framework "github.com/sgnl-ai/adapter-framework"
@@ -30,8 +29,6 @@ import (
 
 const (
 	// SCAFFOLDING #11 - pkg/adapter/datasource.go: Update the set of valid entity types this adapter supports.
-	// Users  string = "users"
-	// Groups string = "groups"
 	Teams string = "teams"
 )
 
@@ -56,8 +53,11 @@ type DatasourceResponse struct {
 	// SCAFFOLDING #13  - pkg/adapter/datasource.go: Add or remove fields in the response as necessary. This is used to unmarshal the response from the SoR.
 
 	// SCAFFOLDING #14 - pkg/adapter/datasource.go: Update `objects` with field name in the SoR response that contains the list of objects.
-	//Objects []map[string]any `json:"objects,omitempty"`
-	Teams []map[string]interface{} `json:"teams,omitempty"`
+	Teams  []map[string]interface{} `json:"teams,omitempty"`
+	Limit  int                      `json:"limit"`
+	Offset int                      `json:"offset"`
+	Total  *int                     `json:"total,omitempty"`
+	More   bool                     `json:"more"`
 }
 
 var (
@@ -122,22 +122,19 @@ func (d *Datasource) GetPage(ctx context.Context, request *Request) (*Response, 
 	req = req.WithContext(apiCtx)
 
 	// SCAFFOLDING #17 - pkg/adapter/datasource.go: Add any headers required to communicate with the SoR APIs.
-	// Add headers to the request, if any.
-	// req.Header.Add("Accept", "application/json")
-
 	req.Header.Add("Accept", "application/vnd.pagerduty+json;version=2")
 	req.Header.Add("Content-Type", "application/json")
 
 	if request.Token == "" {
-		return nil, &framework.Error{ // Return an error if no token is provided
+		return nil, &framework.Error{
 			Message: "PagerDuty auth is missing required token.",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_DATASOURCE_CONFIG,
 		}
 	} else {
-		// Auth Token for PagerDuty API (using http_authorization from gRPC request)
-		req.Header.Add("Authorization", request.Token) // Correctly use the token from request.Token
+		req.Header.Add("Authorization", "Token token="+request.Token) // Correctly use the token from request.Token
 	}
 
+	// Sending the request
 	res, err := d.Client.Do(req)
 	if err != nil {
 		return nil, &framework.Error{
@@ -146,85 +143,36 @@ func (d *Datasource) GetPage(ctx context.Context, request *Request) (*Response, 
 		}
 	}
 
-	response := &Response{
-		StatusCode:       res.StatusCode,
-		RetryAfterHeader: res.Header.Get("Retry-After"),
-	}
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body) // Read response body for better error messages
-		defer res.Body.Close()
-		return response, &framework.Error{
-			Message: fmt.Sprintf("PagerDuty API request failed: %d - %s", res.StatusCode, string(body)),
-			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_DATASOURCE_FAILED,
-		}
-	}
-
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
+	// Read and unmarshal response body
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, &framework.Error{
 			Message: "Failed to read response body.",
-			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_DATASOURCE_FAILED,
-		}
-	}
-	// SCAFFOLDING #17-1 - pkg/adapter/datasource.go: To add support for multiple entities that require different parsing functions
-	// Add code to call different ParseResponse functions for each entity response.
-	var objects []map[string]interface{}
-	var nextCursor string
-	var parseErr *framework.Error
-
-	switch request.EntityExternalID {
-	case Teams:
-		objects, nextCursor, parseErr = ParseResponse(body, int(request.PageSize), request.Cursor) // Pass pageSize and cursor
-	default:
-		return nil, &framework.Error{
-			Message: fmt.Sprintf("Unsupported entity type: %s", request.EntityExternalID),
-			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_ENTITY_CONFIG,
-		}
-	}
-
-	if parseErr != nil {
-		return nil, parseErr
-	}
-
-	response.Objects = objects
-	response.NextCursor = nextCursor
-
-	return response, nil
-}
-
-func ParseResponse(body []byte, pageSize int, cursor string) (objects []map[string]interface{}, nextCursor string, err *framework.Error) {
-	var data DatasourceResponse // No need for pointer here
-
-	unmarshalErr := json.Unmarshal(body, &data)
-	if unmarshalErr != nil {
-		return nil, "", &framework.Error{
-			Message: fmt.Sprintf("Failed to unmarshal the datasource response: %v.", unmarshalErr),
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
 		}
 	}
 
-	// SCAFFOLDING #18 - pkg/adapter/datasource.go: Add response validations.
-	// Add necessary validations to check if the response from the datasource is what is expected.
-
-	if data.Teams == nil { // Example Validation: Check if "teams" is present
-		return nil, "", &framework.Error{
-			Message: "PagerDuty API response is missing 'teams' field.",
-			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_DATASOURCE_FAILED,
+	// Deserialize JSON into the datastructure
+	var response DatasourceResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, &framework.Error{
+			Message: fmt.Sprintf("Failed to deserialize response body: %v", err),
+			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INTERNAL,
 		}
 	}
 
-	// SCAFFOLDING #19 - pkg/adapter/datasource.go: Populate next page information (called cursor in SGNL adapters).
-	// Populate nextCursor with the cursor returned from the datasource, if present.
-
-	if len(data.Teams) == pageSize {
-		offset, _ := strconv.Atoi(cursor)
-		nextCursor = strconv.Itoa(offset + pageSize)
+	// Check the 'X-Next-Page' header for pagination
+	cursor := ""
+	if res.Header.Get("X-Next-Page") != "" {
+		cursor = res.Header.Get("X-Next-Page")
 	} else {
-		nextCursor = ""
+		// If there's no cursor, set cursor to empty string to indicate the end of pagination
+		cursor = ""
 	}
 
-	return data.Teams, nextCursor, nil
+	// Return a valid response containing the objects and cursor
+	return &Response{
+		Objects: response.Teams, // Parse the teams
+		Cursor:  cursor,         // Handle cursor if provided in the header
+	}, nil
 }

@@ -61,19 +61,24 @@ type Request struct {
 
 // SCAFFOLDING #6 - pkg/adapter/client.go: Add/Remove/Update any fields to model the response from the SoR API.
 // Response is a response returned by the datasource.
+// type Response struct {
+// 	// StatusCode is an HTTP status code.
+// 	StatusCode int
+
+// 	// RetryAfterHeader is the Retry-After response HTTP header, if set.
+// 	RetryAfterHeader string
+
+// 	// Objects is the list of
+// 	// May be empty.
+// 	Objects []map[string]any
+
+// 	// NextCursor is the cursor that identifies the first object of the next
+// 	// page.
+// 	// May be empty.
+// 	NextCursor string
+// }
+
 type Response struct {
-	// StatusCode is an HTTP status code.
-	StatusCode int
-
-	// RetryAfterHeader is the Retry-After response HTTP header, if set.
-	RetryAfterHeader string
-
-	// Objects is the list of
-	// May be empty.
-	Objects []map[string]any
-
-	// NextCursor is the cursor that identifies the first object of the next
-	// page.
-	// May be empty.
-	NextCursor string
+	Objects []map[string]interface{} `json:"objects"` // List of objects (teams)
+	Cursor  string                   `json:"cursor"`  // Cursor for pagination
 }

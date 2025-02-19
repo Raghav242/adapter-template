@@ -30,6 +30,8 @@ const (
 
 // ValidateGetPageRequest validates the fields of the GetPage Request.
 func (a *Adapter) ValidateGetPageRequest(ctx context.Context, request *framework.Request[Config]) *framework.Error {
+	fmt.Printf("DEBUG: Decoded Config: %+v\n", request.Config)
+
 	if err := request.Config.Validate(ctx); err != nil {
 		return &framework.Error{
 			Message: fmt.Sprintf("Provided config is invalid: %v.", err.Error()),
@@ -41,15 +43,15 @@ func (a *Adapter) ValidateGetPageRequest(ctx context.Context, request *framework
 	// Ensure that an API token is provided, as PagerDuty does not use basic auth.
 	if request.Auth == nil || request.Auth.HTTPAuthorization == "" {
 		return &framework.Error{
-			Message: "Provided datasource auth is missing required API token.",
+			Message: "PagerDuty auth is missing required token.",
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_DATASOURCE_CONFIG,
 		}
 	}
 
-	// Ensure that the expected external_id is "teams" since we are fetching the teams resource.
-	if request.Entity.ExternalId != "teams" {
+	// Ensure that the expected external_id is valid by checking against the predefined valid entities.
+	if _, exists := ValidEntityExternalIDs[request.Entity.ExternalId]; !exists {
 		return &framework.Error{
-			Message: "Provided entity external ID is invalid. Expected 'teams'.",
+			Message: fmt.Sprintf("Invalid entity external ID: %s", request.Entity.ExternalId),
 			Code:    api_adapter_v1.ErrorCode_ERROR_CODE_INVALID_ENTITY_CONFIG,
 		}
 	}

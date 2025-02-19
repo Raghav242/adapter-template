@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 package main
 
 import (
@@ -46,7 +45,7 @@ func main() {
 	}
 
 	// SCAFFOLDING #1 - cmd/adapter/main.go: Pass options to configure TLS, connection parameters.
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.MaxRecvMsgSize(1024 * 1024 * 10)) // Example: Increase max message size
 
 	stop := make(chan struct{})
 

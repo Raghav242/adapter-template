@@ -109,9 +109,9 @@ func (a *Adapter) RequestPageFromDatasource(
 		)
 	}
 
-	// Parse JSON into a slice of maps
-	var jsonData []map[string]any
-	if err := json.Unmarshal(bodyBytes, &jsonData); err != nil {
+	// Parse JSON into DatasourceResponse
+	var data DatasourceResponse
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
 		return framework.NewGetPageResponseError(
 			&framework.Error{
 				Message: fmt.Sprintf("Failed to unmarshal JSON response: %v", err),
@@ -120,12 +120,10 @@ func (a *Adapter) RequestPageFromDatasource(
 		)
 	}
 
-	// The raw JSON objects from the response must be parsed and converted into framework.Objects.
-	// Nested attributes are flattened and delimited by the delimiter specified.
-	// DateTime values are parsed using the specified DateTimeFormatWithTimeZone.
+	// Use data.Teams instead of jsonData
 	parsedObjects, parserErr := web.ConvertJSONObjectList(
 		&request.Entity,
-		jsonData, // Updated: Pass parsed JSON instead of resp.Body
+		data.Teams, // Updated: Use Teams from the DatasourceResponse
 
 		// SCAFFOLDING #23 - pkg/adapter/adapter.go: Disable JSONPathAttributeNames.
 		// Disable JSONPathAttributeNames if your datasource does not support
@@ -145,11 +143,6 @@ func (a *Adapter) RequestPageFromDatasource(
 				{Format: "2006-01-02", HasTimeZone: false},
 			}...,
 		),
-
-		// SCAFFOLDING #25 - pkg/adapter/adapter.go: Uncomment to set the default timezone in case the SoR datetime attribute does not have timezone specified.
-		// This can be provided to be used as a default value when parsing
-		// datetime values lacking timezone info. This defaults to UTC.
-		// web.WithLocalTimeZoneOffset(-7),
 	)
 	if parserErr != nil {
 		return framework.NewGetPageResponseError(
